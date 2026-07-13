@@ -10,3 +10,5 @@ services:
         sync: false
       - key: SEND_DELAY
         value: "1.5"
+      - key: ALBUM_FLUSH_TIMEOUT
+        value: "180
