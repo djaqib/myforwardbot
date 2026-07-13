@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: privacy-cover-bot
+    runtime: python
+    plan: free
+    buildCommand: "apt-get update && apt-get install -y ffmpeg && pip install -r requirements.txt"
+    startCommand: "python privacy_cover_bot.py"
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SEND_DELAY
+        value: "1.5"
+        
