@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: privacy-cover-bot
+    runtime: docker
+    plan: free
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SEND_DELAY
+        value: "1.5"
+      - key: ALBUM_FLUSH_TIMEOUT
+        value: "180"
