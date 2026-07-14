@@ -1,2 +1,0 @@
-python-telegram-bot[webhooks]==21.6
-asyncpg==0.29.0
