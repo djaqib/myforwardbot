@@ -11,4 +11,8 @@ services:
       - key: SEND_DELAY
         value: "1.5"
       - key: ALBUM_FLUSH_TIMEOUT
-        value: "180
+        value: "180"
+      - key: MAX_QUEUE_SIZE
+        value: "2000"
+      - key: NEAR_DUP_THRESHOLD
+        value: "6"
