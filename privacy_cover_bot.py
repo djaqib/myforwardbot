@@ -187,9 +187,11 @@ async def flush_chunk(user_id: int, chat_id: int, category: str, items: list):
                 try:
                     await BOT.delete_message(chat_id, msg_id)
                 except Exception as e:
-    logger.exception(e)
-    await BOT.send_message(chat_id, str(e))
-
+    logger.exception("Delete failed")
+    await BOT.send_message(
+        chat_id,
+        f"Delete failed:\n{type(e).__name__}\n{e}"
+    )
     await send_queue.put((job, chat_id))
 
 
