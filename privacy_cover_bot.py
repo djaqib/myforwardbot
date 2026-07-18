@@ -178,7 +178,7 @@ async def flush_chunk(user_id: int, chat_id: int, category: str, items: list):
             await BOT.send_media_group(chat_id, media=media)
             await BOT.send_message(chat_id, f"✅ Sent album of {len(items)}.")
 
-                settings = await db.get_settings(user_id)
+        settings = await db.get_settings(user_id)
         if settings["auto_delete_original"]:
             for item in items:
                 msg_id = item.get("message_id")
