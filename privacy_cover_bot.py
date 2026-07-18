@@ -186,8 +186,9 @@ async def flush_chunk(user_id: int, chat_id: int, category: str, items: list):
                     continue
                 try:
                     await BOT.delete_message(chat_id, msg_id)
-                except Exception:
-                    logger.warning("Couldn't delete original message %s", msg_id, exc_info=True)
+                except Exception as e:
+    logger.exception(e)
+    await BOT.send_message(chat_id, str(e))
 
     await send_queue.put((job, chat_id))
 
