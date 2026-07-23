@@ -13,8 +13,8 @@ services:
       - key: SEND_DELAY
         value: "1.9"
       - key: ALBUM_FLUSH_TIMEOUT
-        value: "500"
+        value: "100"
       - key: MAX_QUEUE_SIZE
         value: "6000"
       - key: NEAR_DUP_THRESHOLD
-        value: "6"
+        value: "4"
