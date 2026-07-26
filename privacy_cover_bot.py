@@ -35,10 +35,12 @@ Env vars needed:
 
 import asyncio
 import io
+import json
 import os
 import time
 import logging
 
+import tornado.web
 import imagehash
 from PIL import Image
 from telegram import (
@@ -693,6 +695,52 @@ async def post_init(app: Application):
     ])
 
 
+class TelegramWebhookHandler(tornado.web.RequestHandler):
+    def initialize(self, ptb_app: Application):
+        self.ptb_app = ptb_app
+
+    async def post(self):
+        try:
+            data = json.loads(self.request.body)
+            update = Update.de_json(data, self.ptb_app.bot)
+            await self.ptb_app.update_queue.put(update)
+        except Exception:
+            logger.exception("Failed to enqueue incoming update")
+        self.set_status(200)
+
+
+class HealthHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.set_status(200)
+        self.write("OK")
+
+    def head(self):
+        self.set_status(200)
+
+
+async def run_webhook_with_health(app: Application, external_url: str, port: int):
+    webhook_path = BOT_TOKEN
+
+    await app.initialize()
+    if app.post_init:
+        await app.post_init(app)
+    await app.start()
+    await app.bot.set_webhook(url=f"{external_url}/{webhook_path}")
+
+    web_app = tornado.web.Application([
+        (rf"/{webhook_path}", TelegramWebhookHandler, dict(ptb_app=app)),
+        (r"/health", HealthHandler),
+    ])
+    web_app.listen(port, address="0.0.0.0")
+    logger.info("Webhook + health server listening on port %s", port)
+
+    try:
+        await asyncio.Event().wait()  # run forever until the process is killed
+    finally:
+        await app.stop()
+        await app.shutdown()
+
+
 def main():
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
@@ -718,13 +766,7 @@ def main():
     external_url = os.environ.get("RENDER_EXTERNAL_URL")
 
     if external_url:
-        webhook_path = BOT_TOKEN
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            url_path=webhook_path,
-            webhook_url=f"{external_url}/{webhook_path}",
-        )
+        asyncio.run(run_webhook_with_health(app, external_url, port))
     else:
         app.run_polling()
 
