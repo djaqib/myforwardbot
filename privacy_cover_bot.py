@@ -105,6 +105,33 @@ async def notify_throttled(user_id: int, chat_id: int, key: str, text: str):
     await BOT.send_message(chat_id, text)
 
 
+# ---------- batch progress tracking ----------
+# Telegram gives no upfront count when you forward a bunch of messages,
+# so real "20/1000" progress needs you to declare the total first via
+# /batch 1000. Without an active declared batch, confirmations fall back
+# to the plain "Sent N" style.
+
+batch_state: dict[int, dict] = {}  # user_id -> {"total": int, "sent": int}
+
+
+def progress_text(user_id: int, count: int) -> str:
+    state = batch_state.get(user_id)
+    if not state:
+        return f"✅ Sent album of {count}." if count > 1 else "✅ Sent."
+
+    state["sent"] += count
+    sent = min(state["sent"], state["total"])
+    tag_suffix = f" — {state['tag']}" if state.get("tag") else ""
+    text = f"✅ Sent {sent}/{state['total']}{tag_suffix}"
+    if state["sent"] >= state["total"]:
+        if state.get("tag"):
+            text += f"\n🏁 ——— {state['tag']} complete ——— 🏁"
+        else:
+            text += "\n🎉 Batch complete!"
+        batch_state.pop(user_id, None)
+    return text
+
+
 # ---------- rate-limited send queue ----------
 
 send_queue: "asyncio.Queue" = asyncio.Queue()
@@ -172,11 +199,11 @@ async def flush_chunk(user_id: int, chat_id: int, category: str, items: list):
     async def job():
         if len(items) == 1:
             await send_single(chat_id, category, items[0])
-            await BOT.send_message(chat_id, "✅ Sent.")
         else:
             media = [build_input_media(category, item) for item in items]
             await BOT.send_media_group(chat_id, media=media)
-            await BOT.send_message(chat_id, f"✅ Sent album of {len(items)}.")
+
+        await BOT.send_message(chat_id, progress_text(user_id, len(items)))
 
         settings = await db.get_settings(user_id)
         if settings["auto_delete_original"]:
@@ -363,6 +390,66 @@ async def reset_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await db.reset_stats(query.from_user.id)
     await query.edit_message_text("Stats reset to zero.")
+
+
+async def set_batch(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    args = context.args
+
+    if not args:
+        state = batch_state.get(user_id)
+        if state:
+            tag_line = f" ({state['tag']})" if state.get("tag") else ""
+            await update.message.reply_text(
+                f"Current batch{tag_line}: {state['sent']}/{state['total']}\n"
+                f"Use /batch 0 to clear it."
+            )
+        else:
+            await update.message.reply_text(
+                "No batch declared. Usage: /batch 1000 [optional tag] — "
+                "before you start forwarding, to get \"sent X/1000\" "
+                "progress on each album confirmation. Adding a tag also "
+                "drops a searchable landmark message you can find later "
+                "with Telegram's search.\n"
+                "Note: this only counts photos/videos/audio-as-albums/"
+                "documents, not voice notes, GIFs, or text, which aren't "
+                "batched by Telegram and don't get a per-item message."
+            )
+        return
+
+    try:
+        total = int(args[0])
+    except ValueError:
+        await update.message.reply_text("That's not a number — try e.g. /batch 1000 vacation-trip")
+        return
+
+    if total <= 0:
+        batch_state.pop(user_id, None)
+        await update.message.reply_text("Batch cleared.")
+        return
+
+    tag = " ".join(args[1:]).strip() or None
+    batch_state[user_id] = {"total": total, "sent": 0, "tag": tag}
+
+    if tag:
+        await BOT.send_message(chat_id, f"📌 ——— {tag} (batch of {total}) ——— 📌")
+    else:
+        await update.message.reply_text(f"Tracking a batch of {total}. Go ahead and forward.")
+
+
+async def set_tag(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "Usage: /tag <title> — drops a searchable landmark message "
+            "right now, so you can find this point in the chat later via "
+            "Telegram's search."
+        )
+        return
+
+    title = " ".join(args)
+    await update.message.reply_text(f"📌 ——— {title} ——— 📌")
 
 
 # ---------- size filter helper ----------
@@ -601,6 +688,8 @@ async def post_init(app: Application):
         BotCommand("queue", "See what's pending"),
         BotCommand("stats", "See your usage totals"),
         BotCommand("resetstats", "Reset usage stats to zero"),
+        BotCommand("batch", "Declare a total for X/N progress tracking"),
+        BotCommand("tag", "Drop a searchable landmark message"),
     ])
 
 
@@ -612,6 +701,8 @@ def main():
     app.add_handler(CommandHandler("queue", show_queue))
     app.add_handler(CommandHandler("stats", show_stats))
     app.add_handler(CommandHandler("resetstats", reset_stats_command))
+    app.add_handler(CommandHandler("batch", set_batch))
+    app.add_handler(CommandHandler("tag", set_tag))
     app.add_handler(CommandHandler("minsize", set_min_size))
     app.add_handler(CallbackQueryHandler(reset_stats_callback, pattern="^resetstats_"))
     app.add_handler(CallbackQueryHandler(settings_callback, pattern="^(toggle:|cycle_size|close)"))
