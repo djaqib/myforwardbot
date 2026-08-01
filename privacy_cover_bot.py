@@ -4,6 +4,10 @@ into albums of up to 10 (Telegram's max), using file_id + sendMediaGroup
 so nothing is downloaded and there's no 20MB limit for anything except
 photos when near-duplicate detection is on (see below).
 
+BOT_VERSION = 2.8.0
+Last change: added strip_caption toggle (keep or drop original captions
+on resend) + this version header.
+
 Album batching: see buffer_add() / try_flush_full_chunks() / debounced_flush().
 Send 8 videos, wait, send 5 more -> the first 2 of the new batch complete
 a 10-item album with the original 8; the remaining 3 wait for more items
@@ -32,6 +36,8 @@ Env vars needed:
   MAX_QUEUE_SIZE        - optional, cap on pending+buffered items per user (default 2000)
   NEAR_DUP_THRESHOLD    - optional, max Hamming distance to count as a near-dup (default 6)
 """
+
+BOT_VERSION = "2.8.0"
 
 import asyncio
 import io
@@ -86,6 +92,7 @@ BOOL_SETTING_LABELS = {
     "dedup_enabled": "Dedup",
     "near_dup_enabled": "Near-dup detect",
     "auto_delete_original": "Auto-delete originals",
+    "strip_caption": "Strip captions",
 }
 
 BOT = None  # set in post_init; used by timer-driven buffer flushes
@@ -177,37 +184,42 @@ buffers: dict[str, dict[int, list]] = {"media": {}, "audio": {}, "document": {}}
 last_activity: dict[str, dict[int, float]] = {"media": {}, "audio": {}, "document": {}}
 
 
-def build_input_media(category: str, item: dict):
+def build_input_media(category: str, item: dict, keep_caption: bool):
+    caption = item.get("caption") if keep_caption else None
     if category == "media":
-        return InputMediaPhoto(item["file_id"]) if item["type"] == "photo" else InputMediaVideo(item["file_id"])
+        return (InputMediaPhoto(item["file_id"], caption=caption) if item["type"] == "photo"
+                else InputMediaVideo(item["file_id"], caption=caption))
     if category == "audio":
-        return InputMediaAudio(item["file_id"])
-    return InputMediaDocument(item["file_id"])
+        return InputMediaAudio(item["file_id"], caption=caption)
+    return InputMediaDocument(item["file_id"], caption=caption)
 
 
-async def send_single(chat_id: int, category: str, item: dict):
+async def send_single(chat_id: int, category: str, item: dict, keep_caption: bool):
+    caption = item.get("caption") if keep_caption else None
     if category == "media":
         if item["type"] == "photo":
-            await BOT.send_photo(chat_id, item["file_id"])
+            await BOT.send_photo(chat_id, item["file_id"], caption=caption)
         else:
-            await BOT.send_video(chat_id, item["file_id"])
+            await BOT.send_video(chat_id, item["file_id"], caption=caption)
     elif category == "audio":
-        await BOT.send_audio(chat_id, item["file_id"])
+        await BOT.send_audio(chat_id, item["file_id"], caption=caption)
     else:
-        await BOT.send_document(chat_id, item["file_id"])
+        await BOT.send_document(chat_id, item["file_id"], caption=caption)
 
 
 async def flush_chunk(user_id: int, chat_id: int, category: str, items: list):
     async def job():
+        settings = await db.get_settings(user_id)
+        keep_caption = not settings["strip_caption"]
+
         if len(items) == 1:
-            await send_single(chat_id, category, items[0])
+            await send_single(chat_id, category, items[0], keep_caption)
         else:
-            media = [build_input_media(category, item) for item in items]
+            media = [build_input_media(category, item, keep_caption) for item in items]
             await BOT.send_media_group(chat_id, media=media)
 
         await BOT.send_message(chat_id, progress_text(user_id, len(items)))
 
-        settings = await db.get_settings(user_id)
         if settings["auto_delete_original"]:
             for item in items:
                 msg_id = item.get("message_id")
@@ -262,10 +274,12 @@ def build_settings_keyboard(settings: dict) -> InlineKeyboardMarkup:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Hey! Send me photos, videos, GIFs, audio, or documents and I'll "
-        "send them back stripped of captions/attribution — photos and "
-        "videos get batched into albums of up to 10 automatically.\n\n"
-        "/settings — toggle what I accept, dedup, near-dup detection, min size\n"
+        f"Hey! (v{BOT_VERSION}) Send me photos, videos, GIFs, audio, or "
+        "documents and I'll send them back stripped of captions/"
+        "attribution by default — photos and videos get batched into "
+        "albums of up to 10 automatically.\n\n"
+        "/settings — toggle what I accept, dedup, near-dup detection, "
+        "min size, caption stripping\n"
         "/queue — see what's pending\n"
         "/stats — see your usage totals"
     )
@@ -526,7 +540,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await db.increment_stat(user_id, "total_processed")
-    await buffer_add(user_id, chat_id, "media", {"type": "photo", "file_id": file_obj.file_id, "message_id": msg.message_id})
+    await buffer_add(user_id, chat_id, "media", {"type": "photo", "file_id": file_obj.file_id, "message_id": msg.message_id, "caption": msg.caption})
 
 
 async def handle_video_or_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -555,7 +569,7 @@ async def handle_video_or_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     await db.increment_stat(user_id, "total_processed")
-    await buffer_add(user_id, chat_id, category, {"type": item_type, "file_id": file_obj.file_id, "message_id": msg.message_id})
+    await buffer_add(user_id, chat_id, category, {"type": item_type, "file_id": file_obj.file_id, "message_id": msg.message_id, "caption": msg.caption})
 
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -597,7 +611,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.warning("Couldn't delete original voice message", exc_info=True)
         await send_queue.put((job, chat_id))
     else:
-        await buffer_add(user_id, chat_id, "audio", {"type": "audio", "file_id": file_obj.file_id, "message_id": msg.message_id})
+        await buffer_add(user_id, chat_id, "audio", {"type": "audio", "file_id": file_obj.file_id, "message_id": msg.message_id, "caption": msg.caption})
 
 
 async def handle_gif(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -629,7 +643,8 @@ async def handle_gif(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await db.increment_stat(user_id, "total_processed")
 
     async def job():
-        await BOT.send_animation(chat_id, file_obj.file_id)
+        caption = None if settings["strip_caption"] else msg.caption
+        await BOT.send_animation(chat_id, file_obj.file_id, caption=caption)
         if settings["auto_delete_original"]:
             try:
                 await BOT.delete_message(chat_id, msg.message_id)
@@ -742,6 +757,7 @@ async def run_webhook_with_health(app: Application, external_url: str, port: int
 
 
 def main():
+    logger.info("Starting Privacy Cover Bot v%s", BOT_VERSION)
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
     app.add_handler(CommandHandler("start", start))
