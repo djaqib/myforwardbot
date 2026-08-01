@@ -23,6 +23,7 @@ DEFAULT_SETTINGS = {
     "near_dup_enabled": True,
     "min_file_size_mb": 0,  # 0 = no minimum
     "auto_delete_original": False,
+    "strip_caption": True,
 }
 
 BOOL_KEYS = {k for k, v in DEFAULT_SETTINGS.items() if isinstance(v, bool)}
@@ -44,7 +45,8 @@ async def init_db():
                 dedup_enabled BOOLEAN NOT NULL DEFAULT TRUE,
                 near_dup_enabled BOOLEAN NOT NULL DEFAULT TRUE,
                 min_file_size_mb INTEGER NOT NULL DEFAULT 0,
-                auto_delete_original BOOLEAN NOT NULL DEFAULT FALSE
+                auto_delete_original BOOLEAN NOT NULL DEFAULT FALSE,
+                strip_caption BOOLEAN NOT NULL DEFAULT TRUE
             )
         """)
         # CREATE TABLE IF NOT EXISTS won't add columns to a table that
@@ -53,7 +55,8 @@ async def init_db():
             ALTER TABLE user_settings
                 ADD COLUMN IF NOT EXISTS near_dup_enabled BOOLEAN NOT NULL DEFAULT TRUE,
                 ADD COLUMN IF NOT EXISTS min_file_size_mb INTEGER NOT NULL DEFAULT 0,
-                ADD COLUMN IF NOT EXISTS auto_delete_original BOOLEAN NOT NULL DEFAULT FALSE
+                ADD COLUMN IF NOT EXISTS auto_delete_original BOOLEAN NOT NULL DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS strip_caption BOOLEAN NOT NULL DEFAULT TRUE
         """)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS seen_hashes (
@@ -98,7 +101,7 @@ async def get_settings(user_id: int) -> dict:
         row = await conn.fetchrow(
             "SELECT accept_photos, accept_text, accept_gifs, accept_audio, "
             "dedup_enabled, near_dup_enabled, min_file_size_mb, "
-            "auto_delete_original "
+            "auto_delete_original, strip_caption "
             "FROM user_settings WHERE user_id = $1",
             user_id,
         )
