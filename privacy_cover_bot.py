@@ -4,9 +4,10 @@ into albums of up to 10 (Telegram's max), using file_id + sendMediaGroup
 so nothing is downloaded and there's no 20MB limit for anything except
 photos when near-duplicate detection is on (see below).
 
-BOT_VERSION = 2.8.0
-Last change: added strip_caption toggle (keep or drop original captions
-on resend) + this version header.
+BOT_VERSION = 2.9.0
+Last change: bot's own status/utility messages (queue, stats, rejection
+notices, reset confirmations) now self-delete after 2 minutes to reduce
+clutter. Progress confirmations and /tag landmarks stay persistent.
 
 Album batching: see buffer_add() / try_flush_full_chunks() / debounced_flush().
 Send 8 videos, wait, send 5 more -> the first 2 of the new batch complete
@@ -35,9 +36,10 @@ Env vars needed:
   ALBUM_FLUSH_TIMEOUT   - optional, seconds before flushing a partial album (default 180)
   MAX_QUEUE_SIZE        - optional, cap on pending+buffered items per user (default 2000)
   NEAR_DUP_THRESHOLD    - optional, max Hamming distance to count as a near-dup (default 6)
+  SELF_DELETE_SECONDS   - optional, seconds before status messages self-delete (default 120)
 """
 
-BOT_VERSION = "2.8.0"
+BOT_VERSION = "2.9.0"
 
 import asyncio
 import io
@@ -104,6 +106,44 @@ BOT = None  # set in post_init; used by timer-driven buffer flushes
 REJECTION_NOTICE_COOLDOWN = float(os.environ.get("REJECTION_NOTICE_COOLDOWN", "300"))
 _last_notice: dict[tuple[int, str], float] = {}
 
+SELF_DELETE_SECONDS = float(os.environ.get("SELF_DELETE_SECONDS", "120"))
+
+
+async def send_temp_message(chat_id: int, text: str, **kwargs):
+    """Sends a message and deletes it after SELF_DELETE_SECONDS. Used for
+    status/utility replies (queue, stats, rejection notices, confirmations)
+    so they don't pile up in the chat — as opposed to progress "Sent X/Y"
+    confirmations and /tag landmarks, which stay persistent on purpose."""
+    msg = await BOT.send_message(chat_id, text, **kwargs)
+
+    async def _delete_later():
+        await asyncio.sleep(SELF_DELETE_SECONDS)
+        try:
+            await BOT.delete_message(chat_id, msg.message_id)
+        except Exception:
+            logger.warning("Couldn't self-delete status message %s", msg.message_id, exc_info=True)
+
+    asyncio.create_task(_delete_later())
+    return msg
+
+
+async def send_temp_reply(update: Update, text: str, **kwargs):
+    """Same as send_temp_message but replies to the triggering message
+    directly, for handlers that have an Update in hand rather than a bare
+    chat_id."""
+    msg = await update.message.reply_text(text, **kwargs)
+    chat_id = update.effective_chat.id
+
+    async def _delete_later():
+        await asyncio.sleep(SELF_DELETE_SECONDS)
+        try:
+            await BOT.delete_message(chat_id, msg.message_id)
+        except Exception:
+            logger.warning("Couldn't self-delete status message %s", msg.message_id, exc_info=True)
+
+    asyncio.create_task(_delete_later())
+    return msg
+
 
 async def notify_throttled(user_id: int, chat_id: int, key: str, text: str):
     now = time.monotonic()
@@ -111,7 +151,7 @@ async def notify_throttled(user_id: int, chat_id: int, key: str, text: str):
     if now - last < REJECTION_NOTICE_COOLDOWN:
         return
     _last_notice[(user_id, key)] = now
-    await BOT.send_message(chat_id, text)
+    await send_temp_message(chat_id, text)
 
 
 # ---------- batch progress tracking ----------
@@ -154,7 +194,7 @@ async def queue_worker():
         except Exception:
             logger.exception("Queued job failed")
             try:
-                await BOT.send_message(chat_id, "Something went wrong sending that batch.")
+                await send_temp_message(chat_id, "Something went wrong sending that batch.")
             except Exception:
                 logger.exception("Failed to notify user of job failure")
         finally:
@@ -169,7 +209,7 @@ def total_pending(user_id: int) -> int:
 
 async def capacity_ok(user_id: int, chat_id: int) -> bool:
     if total_pending(user_id) >= MAX_QUEUE_SIZE:
-        await BOT.send_message(
+        await send_temp_message(
             chat_id,
             f"Queue is at capacity ({MAX_QUEUE_SIZE} pending) — hold off "
             f"sending more until it drains a bit. Check /queue for status."
@@ -333,7 +373,8 @@ async def set_min_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
         settings = await db.get_settings(user_id)
         current = settings["min_file_size_mb"]
         label = "Off (no minimum)" if current == 0 else f"{current}MB"
-        await update.message.reply_text(
+        await send_temp_reply(
+            update,
             f"Current minimum file size: {label}\n"
             f"Usage: /minsize <MB> — e.g. /minsize 15\n"
             f"Use /minsize 0 to turn the filter off."
@@ -343,16 +384,16 @@ async def set_min_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         mb = int(args[0])
     except ValueError:
-        await update.message.reply_text("That's not a number — try e.g. /minsize 15")
+        await send_temp_reply(update, "That's not a number — try e.g. /minsize 15")
         return
 
     if mb < 0 or mb > 2000:
-        await update.message.reply_text("Pick a value between 0 and 2000 MB.")
+        await send_temp_reply(update, "Pick a value between 0 and 2000 MB.")
         return
 
     await db.set_setting(user_id, "min_file_size_mb", mb)
     label = "Off (no minimum)" if mb == 0 else f"{mb}MB+"
-    await update.message.reply_text(f"Minimum file size set to: {label}")
+    await send_temp_reply(update, f"Minimum file size set to: {label}")
 
 
 async def show_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -360,12 +401,13 @@ async def show_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pending = send_queue.qsize()
     buffered = sum(len(cat.get(user_id, [])) for cat in buffers.values())
     if pending == 0 and buffered == 0:
-        await update.message.reply_text("Nothing pending — all clear.")
+        await send_temp_reply(update, "Nothing pending — all clear.")
         return
 
     eta_seconds = pending * SEND_DELAY
     eta_str = f"~{eta_seconds:.0f}s" if eta_seconds < 60 else f"~{eta_seconds / 60:.1f} min"
-    await update.message.reply_text(
+    await send_temp_reply(
+        update,
         f"{pending} batch(es) queued to send ({eta_str}).\n"
         f"{buffered} item(s) still buffering into an album (flushes at "
         f"{ALBUM_MAX} items or after {int(ALBUM_FLUSH_TIMEOUT)}s of no new items)."
@@ -374,7 +416,8 @@ async def show_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats = await db.get_stats(update.effective_user.id)
-    await update.message.reply_text(
+    await send_temp_reply(
+        update,
         "Your usage stats:\n"
         f"Processed: {stats['total_processed']}\n"
         f"Exact duplicates skipped: {stats['total_duplicates']}\n"
@@ -402,10 +445,21 @@ async def reset_stats_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if query.data == "resetstats_cancel":
         await query.edit_message_text("Cancelled — stats unchanged.")
-        return
+    else:
+        await db.reset_stats(query.from_user.id)
+        await query.edit_message_text("Stats reset to zero.")
 
-    await db.reset_stats(query.from_user.id)
-    await query.edit_message_text("Stats reset to zero.")
+    chat_id = query.message.chat_id
+    message_id = query.message.message_id
+
+    async def _delete_later():
+        await asyncio.sleep(SELF_DELETE_SECONDS)
+        try:
+            await BOT.delete_message(chat_id, message_id)
+        except Exception:
+            logger.warning("Couldn't self-delete status message %s", message_id, exc_info=True)
+
+    asyncio.create_task(_delete_later())
 
 
 async def set_batch(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -417,12 +471,14 @@ async def set_batch(update: Update, context: ContextTypes.DEFAULT_TYPE):
         state = batch_state.get(user_id)
         if state:
             tag_line = f" ({state['tag']})" if state.get("tag") else ""
-            await update.message.reply_text(
+            await send_temp_reply(
+                update,
                 f"Current batch{tag_line}: {state['sent']}/{state['total']}\n"
                 f"Use /batch 0 to clear it."
             )
         else:
-            await update.message.reply_text(
+            await send_temp_reply(
+                update,
                 "No batch declared. Usage: /batch 1000 [optional tag] — "
                 "before you start forwarding, to get \"sent X/1000\" "
                 "progress on each album confirmation. Adding a tag also "
@@ -437,27 +493,29 @@ async def set_batch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         total = int(args[0])
     except ValueError:
-        await update.message.reply_text("That's not a number — try e.g. /batch 1000 vacation-trip")
+        await send_temp_reply(update, "That's not a number — try e.g. /batch 1000 vacation-trip")
         return
 
     if total <= 0:
         batch_state.pop(user_id, None)
-        await update.message.reply_text("Batch cleared.")
+        await send_temp_reply(update, "Batch cleared.")
         return
 
     tag = " ".join(args[1:]).strip() or None
     batch_state[user_id] = {"total": total, "sent": 0, "tag": tag}
 
     if tag:
+        # Landmark message — stays persistent on purpose, doesn't self-delete
         await BOT.send_message(chat_id, f"📌 ——— {tag} (batch of {total}) ——— 📌")
     else:
-        await update.message.reply_text(f"Tracking a batch of {total}. Go ahead and forward.")
+        await send_temp_reply(update, f"Tracking a batch of {total}. Go ahead and forward.")
 
 
 async def set_tag(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args:
-        await update.message.reply_text(
+        await send_temp_reply(
+            update,
             "Usage: /tag <title> — drops a searchable landmark message "
             "right now, so you can find this point in the chat later via "
             "Telegram's search."
@@ -465,6 +523,7 @@ async def set_tag(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     title = " ".join(args)
+    # Landmark message — stays persistent on purpose, doesn't self-delete
     await update.message.reply_text(f"📌 ——— {title} ——— 📌")
 
 
@@ -681,7 +740,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error("Update %s caused error: %s", update, context.error)
     if isinstance(update, Update) and update.effective_chat:
         try:
-            await context.bot.send_message(
+            await send_temp_message(
                 update.effective_chat.id,
                 "Something went wrong handling that — try again, and if it "
                 "keeps happening let me know what you sent."
