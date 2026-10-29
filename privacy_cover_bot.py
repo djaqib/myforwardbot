@@ -47,8 +47,6 @@ import json
 import os
 import time
 import logging
-import db
-from dotenv import load_dotenv
 from flask import Flask
 import tornado.web
 import imagehash
@@ -82,7 +80,8 @@ from telegram.ext import (
     ApplicationBuilder, CallbackQueryHandler, CommandHandler,
     ContextTypes, MessageHandler, filters,
 )
-
+import db
+from dotenv import load_dotenv
 health_app = Flask(__name__)
 
 @health_app.get("/")
