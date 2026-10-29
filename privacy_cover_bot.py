@@ -777,18 +777,19 @@ async def post_init(app: Application):
 
 class TelegramWebhookHandler(tornado.web.RequestHandler):
   def initialize(self, ptb_app: Application):
-      self.ptb_app = ptb_app
+    self.ptb_app = ptb_app
 
   async def post(self):
     try:
       data = json.loads(self.request.body)
       update = Update.de_json(data, self.ptb_app.bot)
       await self.ptb_app.process_update(update)  # <--- Fixed
-  except Exception:
+    except Exception:
       logger.exception("Failed to process incoming update")
-      self.set_status(200)
+    self.set_status(200)
 
-class HealthHandler(tornado.web.RequestHandler):
+
+"""class HealthHandler(tornado.web.RequestHandler):
     def get(self):
         self.set_status(200)
         self.write("OK")
@@ -796,8 +797,8 @@ class HealthHandler(tornado.web.RequestHandler):
     def head(self):
         self.set_status(200)
 
-"""
-### async def run_webhook_with_health(app: Application, external_url: str, port: int):
+
+ async def run_webhook_with_health(app: Application, external_url: str, port: int):
     webhook_path = BOT_TOKEN
 
     await app.initialize()
