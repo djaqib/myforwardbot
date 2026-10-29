@@ -70,20 +70,10 @@ from telegram.ext import (
     filters,
 )
 
-from telegram import (
-    BotCommand, InlineKeyboardButton, InlineKeyboardMarkup,
-    InputMediaPhoto, InputMediaVideo, Update,
-)
-from telegram.constants import ParseMode
-from telegram.error import BadRequest, RetryAfter, TelegramError
-from telegram.ext import (
-    ApplicationBuilder, CallbackQueryHandler, CommandHandler,
-    ContextTypes, MessageHandler, filters,
-)
 import db
 from dotenv import load_dotenv
-health_app = Flask(__name__)
 
+health_app = Flask(__name__)
 @health_app.get("/")
 @health_app.get("/health")
 def health():
@@ -794,7 +784,7 @@ class TelegramWebhookHandler(tornado.web.RequestHandler):
       data = json.loads(self.request.body)
       update = Update.de_json(data, self.ptb_app.bot)
       await self.ptb_app.process_update(update)  # <--- Fixed
-    except Exception:
+         except Exception:
       logger.exception("Failed to process incoming update")
       self.set_status(200)
 
@@ -806,8 +796,8 @@ class HealthHandler(tornado.web.RequestHandler):
     def head(self):
         self.set_status(200)
 
-
-async def run_webhook_with_health(app: Application, external_url: str, port: int):
+"""
+### async def run_webhook_with_health(app: Application, external_url: str, port: int):
     webhook_path = BOT_TOKEN
 
     await app.initialize()
@@ -827,7 +817,7 @@ async def run_webhook_with_health(app: Application, external_url: str, port: int
         await asyncio.Event().wait()  # run forever until the process is killed
     finally:
         await app.stop()
-        await app.shutdown()
+        await app.shutdown()"""
 
 
 def main():
