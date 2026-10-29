@@ -785,20 +785,18 @@ async def post_init(app: Application):
         BotCommand("tag", "Drop a searchable landmark message"),
     ])
 
-
 class TelegramWebhookHandler(tornado.web.RequestHandler):
-    def initialize(self, ptb_app: Application):
-        self.ptb_app = ptb_app
+  def initialize(self, ptb_app: Application):
+      self.ptb_app = ptb_app
 
-    async def post(self):
-        try:
-            data = json.loads(self.request.body)
-            update = Update.de_json(data, self.ptb_app.bot)
-            await self.ptb_app.update_queue.put(update)
-        except Exception:
-            logger.exception("Failed to enqueue incoming update")
-        self.set_status(200)
-
+  async def post(self):
+    try:
+      data = json.loads(self.request.body)
+      update = Update.de_json(data, self.ptb_app.bot)
+      await self.ptb_app.process_update(update)  # <--- Fixed
+    except Exception:
+      logger.exception("Failed to process incoming update")
+      self.set_status(200)
 
 class HealthHandler(tornado.web.RequestHandler):
     def get(self):
