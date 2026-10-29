@@ -72,6 +72,16 @@ from telegram.ext import (
     filters,
 )
 
+from telegram import (
+    BotCommand, InlineKeyboardButton, InlineKeyboardMarkup,
+    InputMediaPhoto, InputMediaVideo, Update,
+)
+from telegram.constants import ParseMode
+from telegram.error import BadRequest, RetryAfter, TelegramError
+from telegram.ext import (
+    ApplicationBuilder, CallbackQueryHandler, CommandHandler,
+    ContextTypes, MessageHandler, filters,
+)
 
 health_app = Flask(__name__)
 
