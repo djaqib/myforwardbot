@@ -47,7 +47,7 @@ import json
 import os
 import time
 import logging
-from db import db
+from database import db
 from dotenv import load_dotenv
 from flask import Flask
 import tornado.web
