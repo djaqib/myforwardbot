@@ -219,4 +219,3 @@ async def reset_stats(user_id: int):
             "total_type_disabled = 0 WHERE user_id = $1",
             user_id,
         )
-db = Database()
