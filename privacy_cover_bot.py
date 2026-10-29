@@ -784,7 +784,7 @@ class TelegramWebhookHandler(tornado.web.RequestHandler):
       data = json.loads(self.request.body)
       update = Update.de_json(data, self.ptb_app.bot)
       await self.ptb_app.process_update(update)  # <--- Fixed
-      except Exception:
+  except Exception:
       logger.exception("Failed to process incoming update")
       self.set_status(200)
 
