@@ -47,9 +47,9 @@ import json
 import os
 import time
 import logging
-from flask import Flask
 import tornado.web
 import imagehash
+from flask import Flask
 from PIL import Image
 from telegram import (
     Update,
@@ -73,11 +73,25 @@ from telegram.ext import (
 import db
 from dotenv import load_dotenv
 
-health_app = Flask(__name__)
-@health_app.get("/")
-@health_app.get("/health")
-def health():
-    return "Bot is running", 200
+# ----------------------------------------------------------------------
+# Webhook & Server Setup
+# ----------------------------------------------------------------------
+async def health_check(request):
+    return PlainTextResponse("OK", status_code=200)
+
+async def telegram_webhook(request):
+    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    if secret != WEBHOOK_SECRET:
+        logger.warning("Invalid webhook secret token.")
+        return Response(status_code=403)
+    try:
+        body = await request.json()
+        update = Update.de_json(body, app.bot)
+        await app.process_update(update)
+        return Response(status_code=200)
+    except Exception as e:
+        logger.exception("Error processing webhook update: %s", e)
+        return Response(status_code=500)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -789,7 +803,7 @@ class TelegramWebhookHandler(tornado.web.RequestHandler):
     self.set_status(200)
 
 
-"""class HealthHandler(tornado.web.RequestHandler):
+class HealthHandler(tornado.web.RequestHandler):
     def get(self):
         self.set_status(200)
         self.write("OK")
@@ -818,7 +832,7 @@ class TelegramWebhookHandler(tornado.web.RequestHandler):
         await asyncio.Event().wait()  # run forever until the process is killed
     finally:
         await app.stop()
-        await app.shutdown()"""
+        await app.shutdown()
 
 
 def main():
