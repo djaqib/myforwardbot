@@ -47,7 +47,6 @@ import json
 import os
 import time
 import logging
-import db 
 from dotenv import load_dotenv
 from flask import Flask
 import tornado.web
@@ -58,7 +57,7 @@ from telegram import (
     BotCommand,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    IputMediaPhoto,
+    InputMediaPhoto,
     InputMediaVideo,
     InputMediaAudio,
     InputMediaDocument,
@@ -71,7 +70,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-
+import telegram
 import db
 health_app = Flask(__name__)
 
