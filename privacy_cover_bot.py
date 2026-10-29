@@ -72,6 +72,29 @@ from telegram.ext import (
 
 import db
 
+from dotenv import load_dotenv
+from flask import Flask
+from database import db
+
+from telegram import (
+    BotCommand, InlineKeyboardButton, InlineKeyboardMarkup,
+    InputMediaPhoto, InputMediaVideo, Update,
+)
+from telegram.constants import ParseMode
+from telegram.error import BadRequest, RetryAfter, TelegramError
+from telegram.ext import (
+    ApplicationBuilder, CallbackQueryHandler, CommandHandler,
+    ContextTypes, MessageHandler, filters,
+)
+
+
+health_app = Flask(__name__)
+
+@health_app.get("/")
+@health_app.get("/health")
+def health():
+    return "Bot is running", 200
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
