@@ -47,6 +47,7 @@ import json
 import os
 import time
 import logging
+from database import db
 from dotenv import load_dotenv
 from flask import Flask
 import tornado.web
@@ -71,8 +72,6 @@ from telegram.ext import (
     filters,
 )
 
-import db
-from database import db
 
 from telegram import (
     BotCommand, InlineKeyboardButton, InlineKeyboardMarkup,
