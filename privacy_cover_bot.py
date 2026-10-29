@@ -815,11 +815,11 @@ class HealthHandler(tornado.web.RequestHandler):
  async def run_webhook_with_health(app: Application, external_url: str, port: int):
     webhook_path = BOT_TOKEN
 
-    await app.initialize()
+       await app.initialize()
     if app.post_init:
-        await app.post_init(app)
-    await app.start()
-    await app.bot.set_webhook(url=f"{external_url}/{webhook_path}")
+       await app.post_init(app)
+       await app.start()
+       await app.bot.set_webhook(url=f"{external_url}/{webhook_path}")
 
     web_app = tornado.web.Application([
         (rf"/{webhook_path}", TelegramWebhookHandler, dict(ptb_app=app)),
