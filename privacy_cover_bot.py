@@ -49,7 +49,6 @@ import time
 import logging
 import tornado.web
 import imagehash
-from flask import Flask
 from PIL import Image
 from telegram import (
     Update,
@@ -73,25 +72,7 @@ from telegram.ext import (
 import db
 from dotenv import load_dotenv
 
-# ----------------------------------------------------------------------
-# Webhook & Server Setup
-# ----------------------------------------------------------------------
-async def health_check(request):
-    return PlainTextResponse("OK", status_code=200)
 
-async def telegram_webhook(request):
-    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-    if secret != WEBHOOK_SECRET:
-        logger.warning("Invalid webhook secret token.")
-        return Response(status_code=403)
-    try:
-        body = await request.json()
-        update = Update.de_json(body, app.bot)
-        await app.process_update(update)
-        return Response(status_code=200)
-    except Exception as e:
-        logger.exception("Error processing webhook update: %s", e)
-        return Response(status_code=500)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -812,14 +793,14 @@ class HealthHandler(tornado.web.RequestHandler):
         self.set_status(200)
 
 
- async def run_webhook_with_health(app: Application, external_url: str, port: int):
+async def run_webhook_with_health(app: Application, external_url: str, port: int):
     webhook_path = BOT_TOKEN
 
-       await app.initialize()
+    await app.initialize()
     if app.post_init:
-       await app.post_init(app)
-       await app.start()
-       await app.bot.set_webhook(url=f"{external_url}/{webhook_path}")
+        await app.post_init(app)
+    await app.start()
+    await app.bot.set_webhook(url=f"{external_url}/{webhook_path}")
 
     web_app = tornado.web.Application([
         (rf"/{webhook_path}", TelegramWebhookHandler, dict(ptb_app=app)),
@@ -829,7 +810,7 @@ class HealthHandler(tornado.web.RequestHandler):
     logger.info("Webhook + health server listening on port %s", port)
 
     try:
-        await asyncio.Event().wait()  # run forever until the process is killed
+        await asyncio.Event().wait()
     finally:
         await app.stop()
         await app.shutdown()
@@ -867,11 +848,4 @@ def main():
 
 
 if __name__ == "__main__":
-  # PORT will pick up Render's assigned port (defaulting to 10000)
-  port = int(os.environ.get("PORT", 10000))
-
-  logger.info(f"Starting Flask health server on port {port}...")
-
-  # This binds Flask to 0.0.0.0 and port 10000 so Render and UptimeRobot can reach it
-  health_app.run(host="0.0.0.0", port=port)
   main()
