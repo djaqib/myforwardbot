@@ -47,7 +47,8 @@ import json
 import os
 import time
 import logging
-
+from dotenv import load_dotenv
+from flask import Flask
 import tornado.web
 import imagehash
 from PIL import Image
@@ -71,9 +72,6 @@ from telegram.ext import (
 )
 
 import db
-
-from dotenv import load_dotenv
-from flask import Flask
 from database import db
 
 from telegram import (
