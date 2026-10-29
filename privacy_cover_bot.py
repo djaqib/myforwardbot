@@ -26,7 +26,7 @@ Buffer safety valve: MAX_QUEUE_SIZE caps how much can be pending (queued
 + buffered) per user at once, so dumping thousands of files can't grow
 memory unboundedly if the queue is draining slower than it's filling.
 
-Stack: python-telegram-bot v20+, asyncpg, Pillow, imagehash
+OKStack: python-telegram-bot v20+, asyncpg, Pillow, imagehash
 Deploy target: Render free web service (webhook mode)
 
 Env vars needed:
@@ -47,6 +47,7 @@ import json
 import os
 import time
 import logging
+from db import db
 from dotenv import load_dotenv
 from flask import Flask
 import tornado.web
