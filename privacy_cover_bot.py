@@ -72,7 +72,7 @@ from telegram.ext import (
     filters,
 )
 
-
+import db
 health_app = Flask(__name__)
 
 @health_app.get("/")
