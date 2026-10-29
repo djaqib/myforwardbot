@@ -48,7 +48,7 @@ import os
 import time
 import logging
 from flask import Flask
-#import tornado.web
+import tornado.web
 import imagehash
 from PIL import Image
 from telegram import (
