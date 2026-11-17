@@ -22,7 +22,7 @@ DEFAULT_SETTINGS = {
     "dedup_enabled": True,
     "near_dup_enabled": True,
     "min_file_size_mb": 0,  # 0 = no minimum
-    "auto_delete_original": False,
+    "auto_delete_original": True,
     "strip_caption": True,
 }
 
